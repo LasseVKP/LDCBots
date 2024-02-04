@@ -28,7 +28,7 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
         self.money_col = self.db["money"]
 
     # Get user balance
-    def get_balance(self, user: discord.User):
+    def get_balance(self, user: discord.Member):
         user_properties = self.money_col.find_one({"_id": user.id}) or False
         if user_properties:
             return user_properties["balance"]
@@ -36,17 +36,22 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
             return 0.0
 
     # Add to user balance
-    def add_balance(self, user: discord.User, amount: float):
+    def add_balance(self, user: discord.Member, amount: float):
         user_properties = self.money_col.find_one({"_id": user.id}) or False
 
         # Check if user is already created
         if user_properties:
             self.money_col.find_one_and_update({"_id": user.id},
-                                               {"$set": {"balance": floor(user_properties["balance"]+amount, 2)}})
-            return floor(user_properties["balance"]+amount, 2)
+                                               {"$set": {"balance": floor(user_properties["balance"] + amount, 2),
+                                                                "cached_name": user.display_name}})
+            return floor(user_properties["balance"] + amount, 2)
         else:
-            self.money_col.insert_one({"_id": user.id, "balance": floor(amount, 2)})
+            self.money_col.insert_one({"_id": user.id, "balance": floor(amount, 2), "cached_name": user.display_name})
             return floor(amount, 2)
+
+    def get_leaderboard(self, limit=10):
+        users = self.money_col.find({}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
+        return list(users)
 
 
 class Blackjack:
@@ -59,7 +64,7 @@ class Blackjack:
             self.deck = json.load(f)
 
     class BlackJackView(discord.ui.View):
-        def __init__(self, deck: list, user: discord.User, amount: float, db: EconomyDatabaseHandler):
+        def __init__(self, deck: list, user: discord.Member, amount: float, db: EconomyDatabaseHandler):
             super().__init__()
             self.deck = deck
             self.user = user
@@ -101,7 +106,7 @@ class Blackjack:
             if self.calculate_hand(self.user_hand) == 21:
                 if self.calculate_hand(self.dealer_hand) == 21:  # Draw
                     return self.game_draw()
-                return self.user_win("Blackjack!", floor(self.amount*1.5, 2))  # User Blackjack
+                return self.user_win("Blackjack!", floor(self.amount * 1.5, 2))  # User Blackjack
             if self.calculate_hand(self.dealer_hand) == 21:  # Dealer blackjack
                 return self.dealer_win("Dealer got blackjack!")
 
@@ -146,7 +151,7 @@ class Blackjack:
             embed.add_field(name=reason,
                             value=f"You won {amount}")
 
-            self.db.add_balance(self.user, amount*2)
+            self.db.add_balance(self.user, amount * 2)
 
             self.disable_all_items()
             self.stop()
@@ -207,22 +212,23 @@ class Blackjack:
             user_value = self.calculate_hand(self.user_hand)
 
             return [
-                    {"name": f"Dealer | {dealer_value}",
-                     "value": dealer_cards},
-                    {"name": f"User | {user_value}",
-                     "value": user_cards}
-                    ]
+                {"name": f"Dealer | {dealer_value}",
+                 "value": dealer_cards},
+                {"name": f"User | {user_value}",
+                 "value": user_cards}
+            ]
 
         async def on_timeout(self):
             embed = self.dealer_draw()
             await self.message.edit(embed=embed, view=self)
 
-    def create_view(self, user: discord.User, amount: float, db: EconomyDatabaseHandler):
+    def create_view(self, user: discord.Member, amount: float, db: EconomyDatabaseHandler):
         return self.BlackJackView(self.deck, user, amount, db)
 
 
 # Default values
 class Default:
+    # Constants
     COLOUR = 0x3044ff
     ERROR_COLOUR = 0xFF3030
     SUCCESS_COLOUR = 0x30FF33
@@ -231,29 +237,56 @@ class Default:
     BLACK = 0x000000
 
 
-def simple_embed(title=None, description=None, colour=Default.COLOUR, url=discord.Embed.Empty, fields=None, author_name=None,
-               author_url=discord.Embed.Empty, author_icon=discord.Embed.Empty, footer=discord.Embed.Empty, footer_icon=discord.Embed.Empty,
-               thumbnail=None, image=None, timestamp=None):  # More embed options
-    if fields is not None:
-        new_fields = fields
+# Simple error embed to improve consistency
+def error_embed(user: discord.Member, error: str):
+    embed = simple_embed(title=error, colour=Default.ERROR_COLOUR,
+                         footer_icon=user.display_avatar.url, footer=user.display_name,
+                         timestamp=datetime.now())
+    return embed
+
+
+# Simple one line message embed to improve consistency
+def simple_message_embed(user: discord.Member, message: str):
+    embed = simple_embed(title=message,
+                         footer_icon=user.display_avatar.url, footer=user.display_name,
+                         timestamp=datetime.now())
+    return embed
+
+
+def simple_embed(title=None, description=None, colour=Default.COLOUR, url=None, fields=None,
+                 author_name=None, author_url=None, author_icon=None,
+                 footer=None, footer_icon=None,
+                 thumbnail=None, image=None, timestamp=None):
+    # Change fields into embed fields
+    if fields is None:
         fields = []
-        for field in new_fields:
-            if "inline" not in field:
-                field["inline"] = False
-            fields.append(discord.EmbedField(field['name'], field['value'], field['inline']))
-    embed = discord.Embed(colour=colour, url=url, fields=fields, timestamp=timestamp)
+    embed_fields = []
+    for field in fields:
+        if "inline" not in field:
+            field["inline"] = False
+        embed_fields.append(discord.EmbedField(field['name'], field['value'], field['inline']))
+
+
+    embed = discord.Embed(colour=colour, url=url, fields=embed_fields, timestamp=timestamp)
+
     if title:
         embed.title = title
+
     if description:
         embed.description = description
+
     if not title and not description:
         embed.description = "_ _"
+
     if author_name:
         embed.set_author(name=author_name, icon_url=author_icon, url=author_url)
+
     if thumbnail:
         embed.set_thumbnail(url=thumbnail)
+
     if image:
         embed.set_image(url=image)
+
     embed.set_footer(text=footer, icon_url=footer_icon)
 
     return embed
@@ -261,7 +294,7 @@ def simple_embed(title=None, description=None, colour=Default.COLOUR, url=discor
 
 # Round to floor with n amount of decimal places
 def floor(i, n):
-    return round(int(i * 10**n) / 10**n, n)
+    return round(int(i * 10 ** n) / 10 ** n, n)
 
 
 # Might delete later
