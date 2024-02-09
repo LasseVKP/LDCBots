@@ -1,4 +1,4 @@
-import discord, pymongo, os, json, random
+import discord, pymongo, os, json, random, time, math
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -25,11 +25,11 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
         super().__init__()
 
         # Initialize the collections
-        self.money_col = self.db["money"]
+        self.econ_col = self.db["economy"]
 
     # Get user balance
     def get_balance(self, user: discord.Member):
-        user_properties = self.money_col.find_one({"_id": user.id}) or False
+        user_properties = self.econ_col.find_one({"_id": user.id}) or False
         if user_properties:
             return user_properties["balance"]
         else:
@@ -37,45 +37,163 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
 
     # Add to user balance
     def add_balance(self, user: discord.Member, amount: float):
-        user_properties = self.money_col.find_one({"_id": user.id}) or False
+        user_properties = self.econ_col.find_one({"_id": user.id}) or False
 
         # Check if user is already created
         if user_properties:
-            self.money_col.find_one_and_update({"_id": user.id},
-                                               {"$set": {"balance": floor(user_properties["balance"] + amount, 2),
-                                                                "cached_name": user.display_name}})
+            self.econ_col.find_one_and_update({"_id": user.id},
+                                              {"$inc": {"balance": floor(amount, 2)},
+                                               "$set": {"cached_name": user.display_name}})
             return floor(user_properties["balance"] + amount, 2)
         else:
-            self.money_col.insert_one({"_id": user.id, "balance": floor(amount, 2), "cached_name": user.display_name})
+            self.econ_col.insert_one({"_id": user.id, "balance": floor(amount, 2),
+                                      "cached_name": user.display_name, "tokens": 0, "tokens_bought": 0})
             return floor(amount, 2)
 
+    def get_leaderboard(self, limit=10):
+        users = self.econ_col.find({}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
+        return list(users)
+
     def add_tokens(self, user: discord.Member, amount: int):
-        user_properties = self.money_col.find_one({"_id": user.id}) or False
+        user_properties = self.econ_col.find_one({"_id": user.id}) or False
 
         # Check if user is already created
         if user_properties:
-            self.money_col.find_one_and_update({"_id": user.id},
-                                               {"$set": {"tokens": user_properties["tokens"] + amount,
-                                                         "cached_name": user.display_name}})
+            self.econ_col.find_one_and_update({"_id": user.id},
+                                              {"$inc": {"tokens": amount, "tokens_bought": amount},
+                                               "$set": {"cached_name": user.display_name}})
             return user_properties["tokens"] + amount
         else:
-            self.money_col.insert_one({"_id": user.id, "balance": 0, "cached_name": user.display_name, "tokens": amount})
+            self.econ_col.insert_one({"_id": user.id, "balance": 0, "cached_name": user.display_name, "tokens": amount,
+                                      "tokens_bought": amount})
             return amount
 
     def get_tokens(self, user: discord.Member):
-        user_properties = self.money_col.find_one({"_id": user.id}) or False
+        user_properties = self.econ_col.find_one({"_id": user.id}) or False
         if user_properties:
             return user_properties["tokens"]
         else:
             return 0
 
+    def get_tokens_bought(self, user: discord.Member):
+        user_properties = self.econ_col.find_one({"_id": user.id}) or False
+        return 0 if not user_properties else user_properties['tokens_bought']
+
     def get_token_leaderboard(self, limit=10):
-        users = self.money_col.find({}, {"cached_name": 1, "tokens": 1, "_id": 1}).sort("tokens", -1).limit(limit)
+        users = self.econ_col.find({"_id": {"$gt": 0}}, {"cached_name": 1, "tokens": 1, "_id": 1}).sort("tokens",
+                                                                                                        -1).limit(
+            limit)
         return list(users)
 
-    def get_leaderboard(self, limit=10):
-        users = self.money_col.find({}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
-        return list(users)
+    def get_token_pool(self):
+        pool = self.econ_col.find_one({"_id": -1}) or False
+        if pool:
+            return pool["pool"]
+        else:
+            return 0
+
+    def add_token_pool(self, amount: int):
+        pool = self.econ_col.find_one({"_id": -1}) or False
+
+        # Check if pool is already created
+        if pool:
+            self.econ_col.find_one_and_update({"_id": -1},
+                                              {"$inc": {"pool": amount}})
+            return pool["pool"] + amount
+        else:
+            self.econ_col.insert_one({"_id": -1, "pool": amount, 'dailies': create_dailies(get_day(), 5)})
+            return amount
+
+    def reset_tokens(self):
+        leaderboard = self.get_token_leaderboard(3)
+        if len(leaderboard) == 0:
+            self.econ_col.find_one_and_delete({"_id": -1})
+            return leaderboard, 0
+
+        pool = self.get_token_pool()
+
+        winner_amount = len(leaderboard)
+
+        winners = []
+
+        for x in range(winner_amount):
+            # w = winner_amount, i = index, pool = pool, token_value = Default.TOKEN_VALUE
+            # Rewards calculated (w - i) / (w * ((w+1)/2)) * pool * token_value
+            reward = floor(
+                round(((winner_amount - x) / (winner_amount * ((winner_amount + 1) / 2)) * pool)) * Default.TOKEN_VALUE,
+                2)
+
+            user_id = leaderboard[x]["_id"]
+            name = leaderboard[x]["cached_name"]
+
+            # Add reward to user using this method because add_balance needs a discord.Member object
+            self.econ_col.update_one({"_id": user_id}, {"$inc": {"balance": reward}})
+
+            # Add winner and reward
+            winners.append({"_id": user_id, "reward": reward, "name": name})
+
+        # Remove pool and all tokens in circulation
+        self.econ_col.update_many({"_id": {"$gt": 0}}, {"$set": {"tokens": 0, "tokens_bought": 0}})
+        self.econ_col.update_one({"_id": -1}, {"$set": {"pool": 0}})
+
+        return winners, pool
+
+    def get_dailies(self):
+        daily = self.econ_col.find_one({"_id": -1}) or False
+        if daily:
+            dailies = daily['dailies']
+
+            # If daily hasn't been updated create new days
+            if get_day() is not dailies[0]['day']:
+                difference = get_day() - dailies[0]['day']
+                start = get_day() + (5 - difference)
+                if difference >= 5:
+                    dailies = create_dailies(get_day(), 5)
+                else:
+                    dailies = dailies[difference:] + create_dailies(start, difference)
+                self.econ_col.update_one({"_id": -1}, {"$set": {'dailies': dailies}})
+
+            return dailies
+
+        dailies = create_dailies(get_day(), 5)
+
+        self.econ_col.insert_one({"_id": -1, 'pool': 0, 'dailies': dailies})
+
+        return dailies
+
+    def is_daily_claimed(self, user: discord.Member):
+        econ_user = self.econ_col.find_one({"_id": user.id}) or False
+        if not econ_user:
+            return False
+        if 'daily' not in econ_user:
+            return False
+        if econ_user['daily'] < get_day():
+            return False
+        return True
+
+    def claim_daily(self, user: discord.Member):
+        econ_user = self.econ_col.find_one({"_id": user.id}) or False
+        daily = self.get_dailies()[0]
+        if not econ_user:
+            self.econ_col.insert_one({"_id": user.id, "balance": daily['money'],
+                                      "cached_name": user.display_name, "tokens": daily['tokens'], "tokens_bought": 0, 'daily': get_day()})
+            return daily
+
+        self.econ_col.update_one({"_id": user.id},
+                                 {"$set": {'daily': get_day()},
+                                  "$inc":{"balance": daily['money'],
+                                          "tokens": daily['tokens']}})
+        return daily
+
+
+def create_dailies(start: int, amount: int):
+    dailies = []
+
+    for x in range(amount):
+        money = floor(random.randint(Default.MIN_DAILY_MONEY, Default.MAX_DAILY_MONEY), -1)
+        tokens = int(round(random.randint(Default.MIN_DAILY_TOKENS, Default.MAX_DAILY_TOKENS), -1))
+        dailies.append({"money": money, "tokens": tokens, "day": start + x})
+    return dailies
 
 
 class Blackjack:
@@ -102,6 +220,7 @@ class Blackjack:
             self.dealer_hand = [self.random_card() for _ in range(2)]
             self.embed = self.check_for_blackjack() or self.current_hand_embed()
             self.timeout = 120
+            self.disable_on_timeout = True
 
         @discord.ui.button(label="Hit", style=discord.ButtonStyle.primary)
         async def hit_callback(self, _, interaction: discord.Interaction):
@@ -175,7 +294,7 @@ class Blackjack:
             embed.add_field(name=reason,
                             value=f"You won {format_tokens(amount)}")
 
-            self.db.add_balance(self.user, amount * 2)
+            self.db.add_tokens(self.user, amount * 2)
 
             self.disable_all_items()
             self.stop()
@@ -186,7 +305,7 @@ class Blackjack:
             embed.add_field(name="Draw!",
                             value="You get your money back!")
 
-            self.db.add_balance(self.user, self.amount)
+            self.db.add_tokens(self.user, self.amount)
 
             self.disable_all_items()
             self.stop()
@@ -242,12 +361,37 @@ class Blackjack:
                  "value": user_cards}
             ]
 
-        async def on_timeout(self):
-            embed = self.dealer_draw()
-            await self.message.edit(embed=embed, view=self)
-
     def create_view(self, user: discord.Member, amount: int, db: EconomyDatabaseHandler):
         return self.BlackJackView(self.deck, user, amount, db)
+
+
+class DailyView(discord.ui.View):
+    def __init__(self, member: discord.Member, edb: EconomyDatabaseHandler):
+        super().__init__()
+        self.member = member
+        self.edb = edb
+        self.timeout = 60
+        self.disable_on_timeout = True
+
+    @discord.ui.button(label="Claim daily", style=discord.ButtonStyle.primary)
+    async def claim_daily(self, _, interaction: discord.Interaction):
+        # Check if the user is the correct user
+        if interaction.user is not self.member:
+            await interaction.response.defer()
+            return
+        await self.disable()
+        if self.edb.is_daily_claimed(self.member):
+            await interaction.response.send_message(embed=error_embed(self.member, "You have already claimed today's daily reward"), ephemeral=True)
+            return
+        daily = self.edb.claim_daily(self.member)
+        embed = simple_message_embed(self.member, f"You claimed today's daily of {format_money(daily['money'])} and {format_tokens(daily['tokens'])}")
+        embed.description = f"{format_tokens(daily['tokens'])} were added to the token pool"
+        await interaction.response.send_message(embed=embed)
+
+    async def disable(self):
+        self.disable_all_items()
+        self.stop()
+        await self.message.edit(view=self)
 
 
 # Default values
@@ -259,6 +403,16 @@ class Default:
     EMBED_COLOUR = 0x202225
     EMBED_BACKGROUND_COLOUR = 0x2f3136
     BLACK = 0x000000
+    CURRENCY = "<:MammothCoin:1123709239739826358>"
+    TOKENS = "<:MammothToken:1124145424236826675>"
+    TOKEN_VALUE = 0.01
+    GUILD = 939053991961165884  # Remember to update
+    ANNOUNCEMENTS_CHANNEL = 1205618362864898058  # Remember to update
+    MAX_WEEKLY_TOKENS = 50000
+    MAX_DAILY_MONEY = 250
+    MIN_DAILY_MONEY = 100
+    MAX_DAILY_TOKENS = 5000
+    MIN_DAILY_TOKENS = 1000
 
 
 # Simple error embed to improve consistency
@@ -289,7 +443,6 @@ def simple_embed(title=None, description=None, colour=Default.COLOUR, url=None, 
         if "inline" not in field:
             field["inline"] = False
         embed_fields.append(discord.EmbedField(field['name'], field['value'], field['inline']))
-
 
     embed = discord.Embed(colour=colour, url=url, fields=embed_fields, timestamp=timestamp)
 
@@ -328,10 +481,30 @@ def get_env_var(key: str):
 
 # Format money for consistency
 def format_money(amount: float):
-    return str(amount) + "$"
+    amount = floor(amount, 2)
+    if int(amount) == amount and amount >= 1000:
+        return str(int(amount)) + " " + Default.CURRENCY
+
+    decimals_missing = 2 - count_decimals(amount)
+
+    if decimals_missing == 2:
+        return str(amount) + "." + "0" * decimals_missing + " " + Default.CURRENCY
+    return str(amount) + "0" * decimals_missing + " " + Default.CURRENCY
 
 
 # Format tokens for consistency
 def format_tokens(amount: int):
-    return str(amount) + " Tokens"
+    return str(amount) + " " + Default.TOKENS
 
+
+# Count decimals in a float
+def count_decimals(num: float):
+    if '.' in str(num):
+        return len(str(num).split('.')[1])
+    else:
+        return 0
+
+
+# Get current day
+def get_day():
+    return math.floor((time.time() / 60 / 60 + 1) / 24)
