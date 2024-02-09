@@ -1,5 +1,4 @@
-import discord
-import datetime
+import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
                  format_money, format_tokens, Default, DailyView)
