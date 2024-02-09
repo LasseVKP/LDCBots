@@ -1,7 +1,8 @@
 import discord
 import datetime
 from discord.ext import tasks
-from vkp import BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed, format_money, format_tokens, Default, DailyView
+from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
+                 format_money, format_tokens, Default, DailyView)
 
 # Create database handler
 EDB = EconomyDatabaseHandler()
@@ -56,7 +57,7 @@ async def midnight_loop():
 
 
 # Pay user, command
-@bot.slash_command()
+@bot.slash_command(description="Pay a user")
 async def pay(ctx: discord.ApplicationContext, user: discord.Member, amount: float):
     # Check if user is a member of the guild
     if not ctx.guild.get_member(user.id):
@@ -95,7 +96,7 @@ async def pay(ctx: discord.ApplicationContext, user: discord.Member, amount: flo
 
 
 # Check user balance, command
-@bot.slash_command()
+@bot.slash_command(description="See a user's balance")
 async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
 
     # Check if a user is specified, else get author
@@ -117,7 +118,7 @@ async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
     await ctx.respond(embed=embed)
 
 
-@bot.slash_command()
+@bot.slash_command(description="Play blackjack")
 async def blackjack(ctx: discord.ApplicationContext, amount: int):
     amount = floor(amount, 2)
 
@@ -143,7 +144,7 @@ async def blackjack(ctx: discord.ApplicationContext, amount: int):
     EDB.add_tokens(ctx.author, -amount)
 
 
-@bot.slash_command()
+@bot.slash_command(description="See the leaderboard")
 async def leaderboard(ctx: discord.ApplicationContext):
     embed = simple_message_embed(ctx.author, f"Top {Default.CURRENCY} Leaderboard")
     current_leaderboard = EDB.get_leaderboard()
@@ -155,9 +156,27 @@ async def leaderboard(ctx: discord.ApplicationContext):
     await ctx.respond(embed=embed)
 
 
+@bot.slash_command(description="See the dailies")
+async def daily(ctx: discord.ApplicationContext):
+    view = None
+    if not EDB.is_daily_claimed(ctx.author):
+        view = DailyView(ctx.author, EDB)
+
+    embed = simple_message_embed(ctx.author, "Dailies forecast")
+
+    dailies = EDB.get_dailies()
+
+    for x in range(len(dailies)):
+        day = dailies[x]
+        title = f"In {x+1} days" if x > 1 else "Tomorrow" if x == 1 else "Today"
+        embed.add_field(name=title, value=f"{format_money(day['money'])} and {format_tokens(day['tokens'])}", inline=False)
+
+    await ctx.respond(embed=embed, view=view)
+
+
 # Token related commands
 
-@tokens.command()
+@tokens.command(description="See the token leaderboard")
 async def leaderboard(ctx: discord.ApplicationContext):
     embed = simple_message_embed(ctx.author, f"Top {Default.TOKENS} Leaderboard")
     current_leaderboard = EDB.get_token_leaderboard()
@@ -169,7 +188,7 @@ async def leaderboard(ctx: discord.ApplicationContext):
     await ctx.respond(embed=embed)
 
 
-@tokens.command()
+@tokens.command(description="See a user's token balance")
 async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
 
     # Check if a user is specified, else get author
@@ -191,7 +210,7 @@ async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
     await ctx.respond(embed=embed)
 
 
-@tokens.command()
+@tokens.command(description="Buy tokens")
 async def buy(ctx: discord.ApplicationContext, amount: int):
     if amount < 1:
         await ctx.respond(embed=error_embed(ctx.author,
@@ -220,37 +239,11 @@ async def buy(ctx: discord.ApplicationContext, amount: int):
     await ctx.respond(embed=embed)
 
 
-@tokens.command()
+@tokens.command(description="See this week's token pool")
 async def pool(ctx: discord.ApplicationContext):
     token_pool = EDB.get_token_pool()
     await ctx.respond(embed=simple_message_embed(ctx.author, f"Current token pool is {format_tokens(token_pool)} "
                                                              f"which is worth {format_money(token_pool*Default.TOKEN_VALUE)}"))
-
-
-# Debug Commands
-
-@bot.slash_command()
-async def money(ctx: discord.ApplicationContext, amount: float):
-    EDB.add_balance(ctx.author, amount)
-    await ctx.respond(f"You received {format_money(amount)}")
-
-
-@bot.slash_command()
-async def daily(ctx: discord.ApplicationContext):
-    view = None
-    if not EDB.is_daily_claimed(ctx.author):
-        view = DailyView(ctx.author, EDB)
-
-    embed = simple_message_embed(ctx.author, "Dailies forecast")
-
-    dailies = EDB.get_dailies()
-
-    for x in range(len(dailies)):
-        day = dailies[x]
-        title = f"In {x+1} days" if x > 1 else "Tomorrow" if x == 1 else "Today"
-        embed.add_field(name=title, value=f"{format_money(day['money'])} and {format_tokens(day['tokens'])}", inline=False)
-
-    await ctx.respond(embed=embed, view=view)
 
 
 # Start the bot
