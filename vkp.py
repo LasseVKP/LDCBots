@@ -49,6 +49,30 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
             self.money_col.insert_one({"_id": user.id, "balance": floor(amount, 2), "cached_name": user.display_name})
             return floor(amount, 2)
 
+    def add_tokens(self, user: discord.Member, amount: int):
+        user_properties = self.money_col.find_one({"_id": user.id}) or False
+
+        # Check if user is already created
+        if user_properties:
+            self.money_col.find_one_and_update({"_id": user.id},
+                                               {"$set": {"tokens": user_properties["tokens"] + amount,
+                                                         "cached_name": user.display_name}})
+            return user_properties["tokens"] + amount
+        else:
+            self.money_col.insert_one({"_id": user.id, "balance": 0, "cached_name": user.display_name, "tokens": amount})
+            return amount
+
+    def get_tokens(self, user: discord.Member):
+        user_properties = self.money_col.find_one({"_id": user.id}) or False
+        if user_properties:
+            return user_properties["tokens"]
+        else:
+            return 0
+
+    def get_token_leaderboard(self, limit=10):
+        users = self.money_col.find({}, {"cached_name": 1, "tokens": 1, "_id": 1}).sort("tokens", -1).limit(limit)
+        return list(users)
+
     def get_leaderboard(self, limit=10):
         users = self.money_col.find({}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
         return list(users)
@@ -64,7 +88,7 @@ class Blackjack:
             self.deck = json.load(f)
 
     class BlackJackView(discord.ui.View):
-        def __init__(self, deck: list, user: discord.Member, amount: float, db: EconomyDatabaseHandler):
+        def __init__(self, deck: list, user: discord.Member, amount: int, db: EconomyDatabaseHandler):
             super().__init__()
             self.deck = deck
             self.user = user
@@ -140,16 +164,16 @@ class Blackjack:
         def dealer_win(self, reason: str):
             embed = self.current_hand_embed(True)
             embed.add_field(name=reason,
-                            value=f"You lost {self.amount}")
+                            value=f"You lost {format_tokens(self.amount)}")
 
             self.disable_all_items()
             self.stop()
             return embed
 
-        def user_win(self, reason: str, amount: float):
+        def user_win(self, reason: str, amount: int):
             embed = self.current_hand_embed(True)
             embed.add_field(name=reason,
-                            value=f"You won {amount}")
+                            value=f"You won {format_tokens(amount)}")
 
             self.db.add_balance(self.user, amount * 2)
 
@@ -222,7 +246,7 @@ class Blackjack:
             embed = self.dealer_draw()
             await self.message.edit(embed=embed, view=self)
 
-    def create_view(self, user: discord.Member, amount: float, db: EconomyDatabaseHandler):
+    def create_view(self, user: discord.Member, amount: int, db: EconomyDatabaseHandler):
         return self.BlackJackView(self.deck, user, amount, db)
 
 
@@ -300,3 +324,14 @@ def floor(i, n):
 # Might delete later
 def get_env_var(key: str):
     return os.getenv(key)
+
+
+# Format money for consistency
+def format_money(amount: float):
+    return str(amount) + "$"
+
+
+# Format tokens for consistency
+def format_tokens(amount: int):
+    return str(amount) + " Tokens"
+
