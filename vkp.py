@@ -363,7 +363,7 @@ class Blackjack:
             ]
 
     def create_view(self, user: discord.Member, amount: int, db: EconomyDatabaseHandler):
-        return self.BlackJackView(self.deck, user, amount, db)
+        return self.BlackJackView(self.deck.copy(), user, amount, db)
 
 
 class DailyView(discord.ui.View):
