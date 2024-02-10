@@ -51,7 +51,7 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
             return floor(amount, 2)
 
     def get_leaderboard(self, limit=10):
-        users = self.econ_col.find({}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
+        users = self.econ_col.find({"_id": {"$gt": 0}}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
         return list(users)
 
     def add_tokens(self, user: discord.Member, amount: int):
@@ -174,13 +174,14 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
     def claim_daily(self, user: discord.Member):
         econ_user = self.econ_col.find_one({"_id": user.id}) or False
         daily = self.get_dailies()[0]
+        self.add_token_pool(daily['tokens'])
         if not econ_user:
             self.econ_col.insert_one({"_id": user.id, "balance": daily['money'],
                                       "cached_name": user.display_name, "tokens": daily['tokens'], "tokens_bought": 0, 'daily': get_day()})
             return daily
 
         self.econ_col.update_one({"_id": user.id},
-                                 {"$set": {'daily': get_day()},
+                                 {"$set": {'daily': get_day(), "cached_name": user.display_name},
                                   "$inc":{"balance": daily['money'],
                                           "tokens": daily['tokens']}})
         return daily
