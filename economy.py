@@ -103,9 +103,6 @@ async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
 
     user_balance = EDB.get_balance(user)
 
-    # Send an int if the user doesn't have a number with decimal places
-    user_balance = user_balance if user_balance != int(user_balance) else int(user_balance)
-
     # Create embed and if user is ctx author then write "You" instead of a username
     message = f"You currently have {format_money(user_balance)}"
     if user is not ctx.author:
@@ -195,9 +192,6 @@ async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
 
     user_balance = EDB.get_tokens(user)
 
-    # Send an int if the user doesn't have a number with decimal places
-    user_balance = user_balance if user_balance != int(user_balance) else int(user_balance)
-
     # Create embed and if user is ctx author then write "You" instead of a username
     message = f"You currently have {format_tokens(user_balance)}"
     if user is not ctx.author:
@@ -229,7 +223,7 @@ async def buy(ctx: discord.ApplicationContext, amount: int):
         return
 
     EDB.add_balance(ctx.author, -amount*Default.TOKEN_VALUE)
-    EDB.add_tokens(ctx.author, amount)
+    EDB.add_tokens(ctx.author, amount, True)
     EDB.add_token_pool(amount)
 
     embed = simple_message_embed(ctx.author,

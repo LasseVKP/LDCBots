@@ -54,18 +54,22 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
         users = self.econ_col.find({"_id": {"$gt": 0}}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
         return list(users)
 
-    def add_tokens(self, user: discord.Member, amount: int):
+    def add_tokens(self, user: discord.Member, amount: int, buy: bool = False):
         user_properties = self.econ_col.find_one({"_id": user.id}) or False
 
         # Check if user is already created
         if user_properties:
-            self.econ_col.find_one_and_update({"_id": user.id},
-                                              {"$inc": {"tokens": amount, "tokens_bought": amount},
-                                               "$set": {"cached_name": user.display_name}})
+            update = {"$inc": {"tokens": amount},
+                                               "$set": {"cached_name": user.display_name}}
+            if buy:
+                update["$inc"]["tokens_bought"] = amount
+            self.econ_col.find_one_and_update({"_id": user.id}, update)
             return user_properties["tokens"] + amount
         else:
-            self.econ_col.insert_one({"_id": user.id, "balance": 0, "cached_name": user.display_name, "tokens": amount,
-                                      "tokens_bought": amount})
+            insert = {"_id": user.id, "balance": 0, "cached_name": user.display_name, "tokens": amount}
+            if buy:
+                insert["tokens_bought"] = amount
+            self.econ_col.insert_one(insert)
             return amount
 
     def get_tokens(self, user: discord.Member):
@@ -295,7 +299,7 @@ class Blackjack:
             embed.add_field(name=reason,
                             value=f"You won {format_tokens(amount)}")
 
-            self.db.add_tokens(self.user, amount * 2)
+            self.db.add_tokens(self.user, self.amount + amount)
 
             self.disable_all_items()
             self.stop()
@@ -304,7 +308,7 @@ class Blackjack:
         def game_draw(self):
             embed = self.current_hand_embed(True)
             embed.add_field(name="Draw!",
-                            value="You get your money back!")
+                            value="You get your tokens back!")
 
             self.db.add_tokens(self.user, self.amount)
 
@@ -470,7 +474,7 @@ def simple_embed(title=None, description=None, colour=Default.COLOUR, url=None, 
     return embed
 
 
-# Round to floor with n amount of decimal places
+# Round to floor with n amount of decimal places    0.02 * 10^2 = 2 / 10^2 = 0.02
 def floor(i, n):
     return round(int(i * 10 ** n) / 10 ** n, n)
 
@@ -495,7 +499,7 @@ def format_money(amount: float):
 
 # Format tokens for consistency
 def format_tokens(amount: int):
-    return str(amount) + " " + Default.TOKENS
+    return str(round(amount)) + " " + Default.TOKENS
 
 
 # Count decimals in a float
