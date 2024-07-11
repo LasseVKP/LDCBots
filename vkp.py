@@ -408,16 +408,16 @@ class Default:
     EMBED_COLOUR = 0x202225
     EMBED_BACKGROUND_COLOUR = 0x2f3136
     BLACK = 0x000000
-    CURRENCY = "<:MammothCoin:1123709239739826358>"
-    TOKENS = "<:MammothToken:1124145424236826675>"
     TOKEN_VALUE = 0.01
-    GUILD = 939053991961165884  # Remember to update
-    ANNOUNCEMENTS_CHANNEL = 1205618362864898058  # Remember to update
     MAX_WEEKLY_TOKENS = 50000
     MAX_DAILY_MONEY = 250
     MIN_DAILY_MONEY = 100
     MAX_DAILY_TOKENS = 5000
     MIN_DAILY_TOKENS = 1000
+    GUILD = os.getenv("GUILD")
+    ANNOUNCEMENTS_CHANNEL = os.getenv("BOT_ANNOUNCEMENT_CHANNEL")
+    CURRENCY = os.getenv("CURRENCY")
+    TOKENS = os.getenv("TOKENS")
 
 
 # Simple error embed to improve consistency

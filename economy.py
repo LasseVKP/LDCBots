@@ -7,7 +7,7 @@ from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack
 EDB = EconomyDatabaseHandler()
 
 # Create a basic bot
-bot = BasicBot(debug_guilds=[769312138207559680])
+bot = BasicBot()
 
 # Initialize blackjack
 blackjack_object = Blackjack()
@@ -15,10 +15,7 @@ blackjack_object = Blackjack()
 
 tokens = bot.create_group("token", "Commands related to the token economy")
 
-
-utc = datetime.timezone.utc
-midnight = datetime.time(hour=23, minute=0, second=0, tzinfo=utc)
-
+midnight = datetime.time(hour=22, minute=0, second=0)
 
 # Run a loop at midnight
 @tasks.loop(time=midnight)
@@ -238,6 +235,7 @@ async def pool(ctx: discord.ApplicationContext):
     await ctx.respond(embed=simple_message_embed(ctx.author, f"Current token pool is {format_tokens(token_pool)} "
                                                              f"which is worth {format_money(token_pool*Default.TOKEN_VALUE)}"))
 
+midnight_loop.start()
 
 # Start the bot
 bot.run(get_env_var("ECONOMY_TOKEN"))
