@@ -420,6 +420,8 @@ class Default:
     ANNOUNCEMENTS_CHANNEL = os.getenv("BOT_ANNOUNCEMENT_CHANNEL")
     CURRENCY = os.getenv("CURRENCY")
     TOKENS = os.getenv("TOKENS")
+    with open("templates/diceSides.json", "r") as f:
+        DICE_IMAGES = json.load(f)
 
 
 # Simple error embed to improve consistency

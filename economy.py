@@ -1,5 +1,6 @@
 import os
-
+import math
+import random
 import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
@@ -114,32 +115,6 @@ async def balance(ctx: discord.ApplicationContext, user: discord.Member = None):
     await ctx.respond(embed=embed)
 
 
-@bot.slash_command(description="Play blackjack")
-async def blackjack(ctx: discord.ApplicationContext, amount: int):
-    amount = floor(amount, 2)
-
-    #  Make sure user can't bet less than 0
-    if amount <= 0:
-        await ctx.respond(embed=error_embed(ctx.author,
-                                            f"You have to bet more than {format_tokens(0)}"),
-                          ephemeral=True)
-        return
-
-    # Make sure user has enough money
-    if EDB.get_tokens(ctx.author) < amount:
-        await ctx.respond(embed=error_embed(ctx.author,
-                                            "Insufficient funds"),
-                          ephemeral=True)
-        return
-
-    # Create a view and embed and send it
-    blackjack_view = blackjack_object.create_view(ctx.author, amount, EDB)
-    await ctx.respond(embed=blackjack_view.embed, view=blackjack_view)
-
-    # Remove amount from user balance to make sure they can't open multiple blackjacks with non-existent money
-    EDB.add_tokens(ctx.author, -amount)
-
-
 @bot.slash_command(description="See the leaderboard")
 async def leaderboard(ctx: discord.ApplicationContext):
     embed = simple_message_embed(ctx.author, f"Top {Default.CURRENCY} Leaderboard")
@@ -171,6 +146,31 @@ async def daily(ctx: discord.ApplicationContext):
 
 
 # Token related commands
+
+@bot.slash_command(description="Play blackjack")
+async def blackjack(ctx: discord.ApplicationContext, amount: int):
+
+    #  Make sure user can't bet less than 0
+    if amount <= 0:
+        await ctx.respond(embed=error_embed(ctx.author,
+                                            f"You have to bet more than {format_tokens(0)}"),
+                          ephemeral=True)
+        return
+
+    # Make sure user has enough money
+    if EDB.get_tokens(ctx.author) < amount:
+        await ctx.respond(embed=error_embed(ctx.author,
+                                            "Insufficient funds"),
+                          ephemeral=True)
+        return
+
+    # Create a view and embed and send it
+    blackjack_view = blackjack_object.create_view(ctx.author, amount, EDB)
+    await ctx.respond(embed=blackjack_view.embed, view=blackjack_view)
+
+    # Remove amount from user balance to make sure they can't open multiple blackjacks with non-existent money
+    EDB.add_tokens(ctx.author, -amount)
+
 
 @tokens.command(description="See the token leaderboard")
 async def leaderboard(ctx: discord.ApplicationContext):
@@ -237,6 +237,49 @@ async def pool(ctx: discord.ApplicationContext):
     token_pool = EDB.get_token_pool()
     await ctx.respond(embed=simple_message_embed(ctx.author, f"Current token pool is {format_tokens(token_pool)} "
                                                              f"which is worth {format_money(token_pool*Default.TOKEN_VALUE)}"))
+
+
+@tokens.command(description="Gamble on a dice roll")
+async def diceroll(ctx: discord.ApplicationContext, amount: int):
+
+    #  Make sure user can't bet less than 0
+    if amount <= 0:
+        await ctx.respond(embed=error_embed(ctx.author,
+                                            f"You have to bet more than {format_tokens(0)}"),
+                          ephemeral=True)
+        return
+
+    # Make sure user has enough money
+    if EDB.get_tokens(ctx.author) < amount:
+        await ctx.respond(embed=error_embed(ctx.author,
+                                            "Insufficient funds"),
+                          ephemeral=True)
+        return
+
+    winnings = amount
+
+    result = random.randint(1, 6)
+
+    embed = simple_message_embed(ctx.author, f"\🎲 The dice rolled {result} \🎲")
+    embed.set_thumbnail(url=Default.DICE_IMAGES[result - 1])
+
+    if result > 4:
+        winnings *= 0.5 if result == 5 else 1
+        winnings = math.ceil(winnings)
+        embed.description = f"Which means you won {winnings} {Default.TOKENS}"
+    elif result == 4:
+        winnings = 0
+        embed.description = "Which means you got your tokens back"
+    else:
+        embed.description = f"Which means you lost {winnings} {Default.TOKENS}"
+        winnings *= -1
+
+    # Create an embed and send it
+    await ctx.respond(embed=embed)
+
+    # Remove amount from user balance to make sure they can't open multiple blackjacks with non-existent money
+    EDB.add_tokens(ctx.author, winnings)
+
 
 midnight_loop.start()
 
