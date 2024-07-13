@@ -1,0 +1,20 @@
+{
+  "colors": {"label": "Choose a color for your name here", "select_mode": "one","roles": [
+    {"id": 950066761091407922, "label": "Red"},
+    {"id": 950066960530563123, "label": "Yellow"},
+    {"id": 950066902825320448, "label": "Orange"},
+    {"id": 950067081100021812, "label": "Lime"},
+    {"id": 950067235475583006, "label": "Green"},
+    {"id": 950067555161235496, "label": "Light Blue"},
+    {"id": 950067654444605470, "label": "Blue"},
+    {"id": 950067828076183673, "label": "Purple"},
+    {"id": 950068028912054353, "label": "Black"},
+    {"id": 950068247758270524, "label": "Gray"},
+    {"id": 950068329211625552, "label": "White"}
+  ]},
+  "announcements": {"label": "Choose events to be notified of", "select_mode": "any","roles": [
+    {"id": 950075878321311805, "label": "Giveaway Announcements"},
+    {"id": 950076032759787602, "label": "Bot Updates"},
+    {"id": 950075961318183002, "label": "Other Announcements"}
+  ]}
+}
