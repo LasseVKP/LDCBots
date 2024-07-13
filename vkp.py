@@ -12,12 +12,24 @@ class BasicBot(discord.Bot):
 
 
 # Database classes
+
+
 class BaseDatabaseHandler:
     def __init__(self):
         db_client = pymongo.MongoClient(get_env_var("DATABASE_URL"))
 
         # Initialize the database
         self.db = db_client[get_env_var("DATABASE_NAME")]
+
+    def get_one_value(self, collection: str, query, field: str, fallback):
+        content = self.db[collection].find_one(query) or {}
+        return content[field] if field in content else fallback
+
+    def get_values(self, collection: str, query):
+        return self.db[collection].find(query)
+
+    def get_values_sorted(self, collection: str, query, fields, sort_field: str, sort_direction: int, limit: int = -1):
+        return self.db[collection].find(query, fields).sort(sort_field, sort_direction).limit(limit)
 
 
 class EconomyDatabaseHandler(BaseDatabaseHandler):
@@ -29,11 +41,26 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
 
     # Get user balance
     def get_balance(self, user: discord.Member):
-        user_properties = self.econ_col.find_one({"_id": user.id}) or False
-        if user_properties:
-            return user_properties["balance"]
-        else:
-            return 0.0
+        return self.get_one_value(collection="economy", query={"_id": user.id}, field="balance", fallback=0.0)
+
+    def get_token_pool(self):
+        return self.get_one_value(collection="economy", query={"_id": -1}, field="pool", fallback=0)
+
+    def get_tokens(self, user: discord.Member):
+        return self.get_one_value(collection="economy", query={"_id": user.id}, field="tokens", fallback=0)
+
+    def get_tokens_bought(self, user: discord.Member):
+        return self.get_one_value(collection="economy", query={"_id": user.id}, field="tokens_bought", fallback=0)
+
+    def get_token_leaderboard(self, limit=10):
+        return list(self.get_values_sorted(collection="economy", query={"_id": {"$gt": 0}},
+                                           fields={"cached_name": 1, "tokens": 1, "_id": 1},
+                                           sort_field="tokens", sort_direction=-1, limit=limit))
+
+    def get_leaderboard(self, limit=10):
+        return list(self.get_values_sorted(collection="economy", query={"_id": {"$gt": 0}},
+                                           fields={"cached_name": 1, "balance": 1, "_id": 1},
+                                           sort_field="balance", sort_direction=-1, limit=limit))
 
     # Add to user balance
     def add_balance(self, user: discord.Member, amount: float):
@@ -50,17 +77,13 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
                                       "cached_name": user.display_name, "tokens": 0, "tokens_bought": 0})
             return floor(amount, 2)
 
-    def get_leaderboard(self, limit=10):
-        users = self.econ_col.find({"_id": {"$gt": 0}}, {"cached_name": 1, "balance": 1, "_id": 0}).sort("balance", -1).limit(limit)
-        return list(users)
-
     def add_tokens(self, user: discord.Member, amount: int, buy: bool = False):
         user_properties = self.econ_col.find_one({"_id": user.id}) or False
 
         # Check if user is already created
         if user_properties:
             update = {"$inc": {"tokens": amount},
-                                               "$set": {"cached_name": user.display_name}}
+                      "$set": {"cached_name": user.display_name}}
             if buy:
                 update["$inc"]["tokens_bought"] = amount
             self.econ_col.find_one_and_update({"_id": user.id}, update)
@@ -71,30 +94,6 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
                 insert["tokens_bought"] = amount
             self.econ_col.insert_one(insert)
             return amount
-
-    def get_tokens(self, user: discord.Member):
-        user_properties = self.econ_col.find_one({"_id": user.id}) or False
-        if user_properties:
-            return user_properties["tokens"]
-        else:
-            return 0
-
-    def get_tokens_bought(self, user: discord.Member):
-        user_properties = self.econ_col.find_one({"_id": user.id}) or False
-        return 0 if not user_properties else user_properties['tokens_bought']
-
-    def get_token_leaderboard(self, limit=10):
-        users = self.econ_col.find({"_id": {"$gt": 0}}, {"cached_name": 1, "tokens": 1, "_id": 1}).sort("tokens",
-                                                                                                        -1).limit(
-            limit)
-        return list(users)
-
-    def get_token_pool(self):
-        pool = self.econ_col.find_one({"_id": -1}) or False
-        if pool:
-            return pool["pool"]
-        else:
-            return 0
 
     def add_token_pool(self, amount: int):
         pool = self.econ_col.find_one({"_id": -1}) or False
@@ -181,13 +180,14 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
         self.add_token_pool(daily['tokens'])
         if not econ_user:
             self.econ_col.insert_one({"_id": user.id, "balance": daily['money'],
-                                      "cached_name": user.display_name, "tokens": daily['tokens'], "tokens_bought": 0, 'daily': get_day()})
+                                      "cached_name": user.display_name, "tokens": daily['tokens'], "tokens_bought": 0,
+                                      'daily': get_day()})
             return daily
 
         self.econ_col.update_one({"_id": user.id},
                                  {"$set": {'daily': get_day(), "cached_name": user.display_name},
-                                  "$inc":{"balance": daily['money'],
-                                          "tokens": daily['tokens']}})
+                                  "$inc": {"balance": daily['money'],
+                                           "tokens": daily['tokens']}})
         return daily
 
 
@@ -386,10 +386,12 @@ class DailyView(discord.ui.View):
             return
         await self.disable()
         if self.edb.is_daily_claimed(self.member):
-            await interaction.response.send_message(embed=error_embed(self.member, "You have already claimed today's daily reward"), ephemeral=True)
+            await interaction.response.send_message(
+                embed=error_embed(self.member, "You have already claimed today's daily reward"), ephemeral=True)
             return
         daily = self.edb.claim_daily(self.member)
-        embed = simple_message_embed(self.member, f"You claimed today's daily of {format_money(daily['money'])} and {format_tokens(daily['tokens'])}")
+        embed = simple_message_embed(self.member,
+                                     f"You claimed today's daily of {format_money(daily['money'])} and {format_tokens(daily['tokens'])}")
         embed.description = f"{format_tokens(daily['tokens'])} were added to the token pool"
         await interaction.response.send_message(embed=embed)
 

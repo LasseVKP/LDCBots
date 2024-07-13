@@ -1,3 +1,5 @@
+import os
+
 import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
@@ -7,7 +9,7 @@ from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack
 EDB = EconomyDatabaseHandler()
 
 # Create a basic bot
-bot = BasicBot()
+bot = BasicBot(debug_guilds=[os.getenv("GUILD")])
 
 # Initialize blackjack
 blackjack_object = Blackjack()
@@ -16,6 +18,7 @@ blackjack_object = Blackjack()
 tokens = bot.create_group("token", "Commands related to the token economy")
 
 midnight = datetime.time(hour=22, minute=0, second=0)
+
 
 # Run a loop at midnight
 @tasks.loop(time=midnight)
