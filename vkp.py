@@ -422,6 +422,8 @@ class Default:
     TOKENS = os.getenv("TOKENS")
     with open("templates/diceSides.json", "r") as f:
         DICE_IMAGES = json.load(f)
+    with open("templates/eightballResponses.json", "r", encoding="utf-8") as f:
+        EIGHTBALL_RESPONSES = json.load(f)
 
 
 # Simple error embed to improve consistency
