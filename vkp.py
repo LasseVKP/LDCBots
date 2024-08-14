@@ -1,6 +1,7 @@
-import discord, pymongo, os, json, random, time, math
+import discord, pymongo, os, json, random, time, math, io
 from dotenv import load_dotenv
 from datetime import datetime
+from PIL import ImageFont, Image, ImageDraw
 
 load_dotenv()
 
@@ -207,7 +208,7 @@ class Blackjack:
         self.load_deck()
 
     def load_deck(self):
-        with open("templates/cardDeck.json", "r") as f:
+        with open("data/templates/cardDeck.json", "r") as f:
             self.deck = json.load(f)
 
     class BlackJackView(discord.ui.View):
@@ -420,9 +421,9 @@ class Default:
     ANNOUNCEMENTS_CHANNEL = os.getenv("BOT_ANNOUNCEMENT_CHANNEL")
     CURRENCY = os.getenv("CURRENCY")
     TOKENS = os.getenv("TOKENS")
-    with open("templates/diceSides.json", "r") as f:
+    with open("data/templates/diceSides.json", "r") as f:
         DICE_IMAGES = json.load(f)
-    with open("templates/eightballResponses.json", "r", encoding="utf-8") as f:
+    with open("data/templates/eightballResponses.json", "r", encoding="utf-8") as f:
         EIGHTBALL_RESPONSES = json.load(f)
 
 
@@ -519,3 +520,110 @@ def count_decimals(num: float):
 # Get current day
 def get_day():
     return math.floor((time.time() / 60 / 60 + 1) / 24)
+
+
+async def generate_discord_screenshot(message: discord.Message, width: int, max_height: int, reference: discord.Message = None):
+    discord_font = ImageFont.truetype('data/fonts/whitneymedium.otf', 26)
+    discord_name_font = ImageFont.truetype('data/fonts/whitneysemibold.otf', 26)
+    discord_time_font = ImageFont.truetype('data/fonts/whitneymedium.otf', 16)
+
+    img = Image.new(mode="RGB", size=(width, max_height), color="#313338")
+
+    avatar = Image.open(io.BytesIO(await message.author.display_avatar.read())).resize((60, 60))
+
+    avatar_mask = Image.new("L", avatar.size, 0)
+    mask_draw = ImageDraw.Draw(avatar_mask)
+    mask_draw.ellipse((0, 0, 60, 60), fill=255)
+
+    img.paste(avatar, (10, 10), mask=avatar_mask)
+
+    draw = ImageDraw.Draw(img)
+
+    draw.text((90, 10), message.author.display_name, font=discord_name_font, fill=(242, 243, 245))
+
+    name_bbox = discord_font.getbbox(message.author.display_name)
+    name_length = name_bbox[2] - name_bbox[0]
+
+    draw.text((name_length+100, 20), message.created_at.strftime('%d/%m/%Y %H:%M'), font=discord_time_font, fill=(135, 155, 154))
+
+    lines = text_wrap(message.content, width-100, discord_font)
+    start_height = 40
+    for line in lines:
+        bbox = discord_font.getbbox(line)
+        line_height = bbox[3] - bbox[1]
+        draw.text((90, start_height), line, font=discord_font, fill=(219, 222, 225))
+        start_height += line_height + 10
+
+    img = img.crop((0, 0, img.size[0], min(img.size[1], start_height + 10)))
+
+    if reference:
+        reference_img = Image.new(mode="RGB", size=(width, img.size[1]+50), color="#313338")
+        reference_img.paste(img, (0, 50))
+        reply_symbol = Image.open("data/media/reply.png")
+        reference_img.paste(reply_symbol, (-5, 17))
+
+        avatar = Image.open(io.BytesIO(await reference.author.display_avatar.read())).resize((30, 30))
+
+        avatar_mask = Image.new("L", avatar.size, 0)
+        mask_draw = ImageDraw.Draw(avatar_mask)
+        mask_draw.ellipse((0, 0, 30, 30), fill=255)
+
+        reference_img.paste(avatar, (115, 12), mask=avatar_mask)
+
+        discord_reply_name_font = ImageFont.truetype('data/fonts/whitneysemibold.otf', 20)
+        discord_reply_content_font = ImageFont.truetype('data/fonts/whitneymedium.otf', 20)
+
+        draw = ImageDraw.Draw(reference_img)
+
+        draw.text((150, 14), reference.author.display_name, fill=(166, 168, 170), font=discord_reply_name_font)
+
+        name_bbox = discord_reply_name_font.getbbox(reference.author.display_name)
+        name_length = name_bbox[2] - name_bbox[0]
+
+        draw.text((name_length+158, 14), reference.content, fill=(181, 186, 193), font=discord_reply_content_font)
+
+        return reference_img
+    else:
+        return img
+
+
+def text_wrap(text: str, max_width: int, font: ImageFont.ImageFont):
+    lines = []
+
+    words = text.split(" ")
+
+    amount = 0
+    while len(words) > 0:
+        amount += 1
+        line = " ".join(words[0:amount])
+        bbox = font.getbbox(line)
+        if bbox[2]-bbox[0] > max_width:
+            if amount == 1:
+                short_lines = []
+                length = 0
+                while len(line) > 0:
+                    length += 1
+                    short_line = line[0:length]
+                    bbox = font.getbbox(short_line)
+                    if bbox[2] - bbox[0] > max_width:
+                        if length == 1:
+                            length = 2
+                        short_lines.append(line[0:length - 1])
+                        line = line[length - 1:]
+                        length = 0
+                    elif length > len(line):
+                        short_lines.append(line)
+                        line = []
+                lines.extend(short_lines)
+                words = words[amount:]
+                amount = 0
+            else:
+                lines.append(" ".join(words[0:amount-1]))
+                words = words[amount-1:]
+                amount = 0
+        elif amount > len(words):
+            lines.append(" ".join(words))
+            words = []
+
+    return lines
+

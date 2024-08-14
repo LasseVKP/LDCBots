@@ -1,13 +1,14 @@
 import json
-import os
 import random
 import discord
-from vkp import (BasicBot, error_embed, simple_message_embed, Default, simple_embed)
+from vkp import (BasicBot, error_embed, simple_message_embed, Default, simple_embed, text_wrap, generate_discord_screenshot)
+from moviepy.editor import *
+import numpy
 
 # Create bot
 bot = BasicBot(debug_guilds=[os.getenv("GUILD")])
 
-roles = json.load(open("templates/roles.json", "r", encoding="utf8"))
+roles = json.load(open("data/templates/roles.json", "r", encoding="utf8"))
 
 
 @bot.event
@@ -69,6 +70,47 @@ async def on_interaction(interaction: discord.Interaction):
 #            buttons.append(discord.ui.Button(label=role["label"], custom_id=f"roles,{select_mode},{category},{role['id']}", style=discord.ButtonStyle.primary))
 #
 #        await ctx.channel.send(embed=embed, view=discord.ui.View(*buttons))
+
+
+@bot.slash_command()
+async def battle_of_wits(ctx: discord.ApplicationContext, counter_link: str):
+
+    try:
+
+        channel = bot.get_channel(int(counter_link.split("/")[-2]))
+
+        counter = await channel.fetch_message(int(counter_link.split("/")[-1]))
+    except:
+        await ctx.respond(embed=error_embed(ctx.author, "Invalid message"), ephemeral=True)
+        return
+
+    if not counter.reference:
+        await ctx.respond(embed=error_embed(ctx.author, "Message has to be a reply to another message"), ephemeral=True)
+        return
+
+    await ctx.defer()
+
+    original = await channel.fetch_message(counter.reference.message_id)
+
+    clip = VideoFileClip("data/media/battleOfWits.mp4")
+
+    if original.reference:
+        original_reference = await channel.fetch_message(original.reference.message_id)
+        img1 = await generate_discord_screenshot(original, 600, 250, original_reference)
+    else:
+        img1 = await generate_discord_screenshot(original, 600, 250)
+    img2 = await generate_discord_screenshot(counter, 600, 250, original)
+
+    image1 = ImageClip(numpy.asarray(img1)).set_start(5.1).set_duration(1.15).set_pos(("center", "center"))
+    image2 = ImageClip(numpy.asarray(img2)).set_start(7.8).set_duration(1).set_pos(("center", "center"))
+
+    final = CompositeVideoClip([clip, image1, image2])
+    final.write_videofile("data/temporary/bow.mp4")
+    clip.close()
+
+    file = discord.File("data/temporary/bow.mp4", filename="battleOfWits.mp4")
+
+    await ctx.respond(file=file)
 
 
 @bot.slash_command(description="Ask the 8ball a question")
