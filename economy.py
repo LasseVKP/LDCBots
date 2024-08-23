@@ -1,10 +1,11 @@
+import json
 import os
 import math
 import random
 import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
-                 format_money, format_tokens, Default, DailyView)
+                 format_money, format_tokens, Default, DailyView, get_day, calc_pet_level, calc_next_pet_level_xp)
 
 # Create database handler
 EDB = EconomyDatabaseHandler()
@@ -17,6 +18,7 @@ blackjack_object = Blackjack()
 
 
 tokens = bot.create_group("token", "Commands related to the token economy")
+pets = bot.create_group("pet", "Commands related to pets")
 
 midnight = datetime.time(hour=22, minute=0, second=0)
 
@@ -279,6 +281,143 @@ async def diceroll(ctx: discord.ApplicationContext, amount: int):
 
     # Remove amount from user balance to make sure they can't open multiple blackjacks with non-existent money
     EDB.add_tokens(ctx.author, winnings)
+
+
+@pets.command(description="Show pets that are available for adoption")
+async def center(ctx: discord.ApplicationContext):
+    available_pets = EDB.get_pets()
+
+    embed = simple_message_embed(ctx.author, "Pets currently available to be adopted")
+
+    for idx, pet in enumerate(available_pets):
+        level = calc_pet_level(pet['xp'])
+
+        embed.add_field(name=f"{idx+1} | {pet['name']} the {pet['type']}", value=f"\\🔹 Age: {floor(pet['age']/7, 1)} years\n\\🔹 Pet level: {level}\n\\🔹 Price: {format_money(pet['price'])}")
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command(description="Preview a pet before adopting it")
+async def preview(ctx: discord.ApplicationContext, index: int):
+    available_pets = EDB.get_pets()
+    if index < 1 or index > len(available_pets) + 1:
+        await ctx.respond(embed=error_embed(ctx.author,
+                                            f"Index out of range. Index has to be an integer between 1-{len(available_pets)}"),
+                          ephemeral=True)
+        return
+
+    pet = available_pets[index - 1]
+
+    with open("data/templates/petImages.json", "r") as f:
+        pet_image = json.load(f)[pet["image"]]
+
+    with open("data/templates/petTemplates.json", "r") as f:
+        lifespan = floor(json.load(f)[pet['type']]['maxAge']/7, 1)
+
+    embed = simple_message_embed(ctx.author, f"{index} | {pet['name']}")
+
+    level = calc_pet_level(pet['xp'])
+    next_level_xp = calc_next_pet_level_xp(level)
+
+    embed.description = f"\\💠{pet['name']} is a {floor(pet['age'] / 7, 1)} year old {pet['type'].lower()}. \n\\💠A {pet['type'].lower()}s lifespan is {lifespan} years\n\n\\💠 Pet level: {level}\n\\💠Pet xp: {pet['xp']}/{next_level_xp}, needs {round(next_level_xp-pet['xp'], 1)} xp to level up\n\nIt costs {format_money(pet['price'])} to adopt {pet['name']}"
+    embed.set_thumbnail(url=pet_image)
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command(description="View a person's pet")
+async def show(ctx: discord.ApplicationContext, user: discord.Member = None):
+    user = user if user else ctx.author
+
+    pet = EDB.get_pet(user)
+
+    if not pet:
+        await ctx.respond(embed=error_embed(ctx.author, "{0} own a pet".format(
+            f"{user.display_name} doesn't" if user.id != ctx.author.id else "You don't")), ephemeral=True)
+        return
+
+    with open("data/templates/petImages.json", "r") as f:
+        pet_image = json.load(f)[pet["image"]]
+
+    with open("data/templates/petTemplates.json", "r") as f:
+        template = json.load(f)[pet['type']]
+
+    age = floor((get_day()-pet['born'])/7, 1)
+    lifespan = floor(template['maxAge']/7,1)
+    level = calc_pet_level(pet['xp'])
+    next_level_xp = calc_next_pet_level_xp(level)
+    xp_for_next_level = round(next_level_xp - pet['xp'], 1)
+
+    embed = simple_message_embed(ctx.author,f"{pet['name']} the {pet['type']}")
+    embed.description = "\\💠 {0} years old. A {1}s lifespan is {2} years\n\n\\💠 Pet level: {3}\n\\💠Pet xp: {4}/{5}, needs {6} xp to level up".format(age,
+                                                                                                                                                            pet['type'].lower(),
+                                                                                                                                                            lifespan,
+                                                                                                                                                            level,
+                                                                                                                                                            pet['xp'],
+                                                                                                                                                            next_level_xp,
+                                                                                                                                                            xp_for_next_level)
+    embed.set_thumbnail(url=pet_image)
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command()
+async def rename(ctx: discord.ApplicationContext, new_name: str):
+    pet = EDB.get_pet(ctx.author)
+
+    if not pet:
+        await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    if len(new_name) > 28:
+        await ctx.respond(embed=error_embed(ctx.author, "New name can't be longer than 28 characters"), ephemeral=True)
+        return
+
+    EDB.rename_pet(ctx.author, new_name.title())
+
+    await ctx.respond(embed=simple_message_embed(ctx.author, f"Renamed {pet['name']}, to {new_name.title()}"))
+
+
+@pets.command(description="Adopt a pet")
+async def adopt(ctx: discord.ApplicationContext, index: int):
+    if EDB.get_pet(ctx.author):
+        await ctx.respond(embed=error_embed(ctx.author, "You can't adopt more than one pet"), ephemeral=True)
+        return
+
+    available_pets = EDB.get_pets()
+    if index<1 or index> len(available_pets)+1:
+        await ctx.respond(embed=error_embed(ctx.author, f"Index out of range. Index has to be an integer between 1-{len(available_pets)}"), ephemeral=True)
+        return
+
+    pet = available_pets[index-1]
+
+    if pet['price'] > EDB.get_balance(ctx.author):
+        await ctx.respond(embed=error_embed(ctx.author, f"You don't have enough {Default.CURRENCY} to buy {pet['name']} the {pet['type']}"), ephemeral=True)
+        return
+
+    with open("data/templates/petImages.json", "r") as f:
+        pet_image = json.load(f)[pet["image"]]
+
+    EDB.set_pet(ctx.author, pet)
+    EDB.replace_pet(index - 1)
+    EDB.add_balance(ctx.author, -pet['price'])
+
+    embed = simple_message_embed(ctx.author, f"You adopted {pet['name']} the {pet['type']} for {format_money(pet['price'])}")
+    embed.set_thumbnail(url=pet_image)
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command()
+async def abandon(ctx: discord.ApplicationContext):
+    pet = EDB.get_pet(ctx.author)
+
+    if not pet:
+        await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    EDB.remove_pet(ctx.author)
+    await ctx.respond(embed=simple_message_embed(ctx.author, f"You abandoned your pet: {pet['name']} the {pet['type']}\n:("))
 
 
 midnight_loop.start()

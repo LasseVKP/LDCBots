@@ -39,10 +39,42 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
 
         # Initialize the collections
         self.econ_col = self.db["economy"]
+        self.pets_col = self.db["pets"]
 
     # Get user balance
     def get_balance(self, user: discord.Member):
         return self.get_one_value(collection="economy", query={"_id": user.id}, field="balance", fallback=0.0)
+
+    def get_pet(self, user: discord.Member):
+        return self.get_one_value(collection="pets", query={"_id": user.id}, field="pet", fallback=None)
+
+    def replace_pet(self, index):
+        self.pets_col.update_one({"_id": -1}, {"$set": {f"pets.{index}": generate_pet()}})
+
+    def rename_pet(self, user: discord.Member, name: str):
+        self.pets_col.update_one({"_id": user.id}, {"$set": {"pet.name": name}})
+
+    def get_pets(self):
+        last_pet_update = self.get_one_value(collection="pets", query={"_id": -1}, field="lastPetUpdate", fallback=0)
+        pets = self.get_one_value(collection="pets", query={"_id": -1}, field="pets", fallback=[])
+
+        if last_pet_update < get_day() or len(pets) == 0:
+            if len(pets) == 0:
+                self.pets_col.insert_one({"_id": -1, "lastPetUpdate": 0, "pets": []})
+            pets = []
+
+            for x in range(6):
+                pets.append(generate_pet())
+
+            self.pets_col.find_one_and_update({"_id": -1}, {"$set": {"pets": pets, "lastPetUpdate": get_day()}})
+
+        return pets
+
+    def set_pet(self, user: discord.Member, pet):
+        self.pets_col.insert_one({"_id": user.id, "pet": convert_pet(pet)})
+
+    def remove_pet(self, user: discord.Member):
+        self.pets_col.delete_one({"_id": user.id})
 
     def get_token_pool(self):
         return self.get_one_value(collection="economy", query={"_id": -1}, field="pool", fallback=0)
@@ -200,6 +232,47 @@ def create_dailies(start: int, amount: int):
         tokens = int(round(random.randint(Default.MIN_DAILY_TOKENS, Default.MAX_DAILY_TOKENS), -1))
         dailies.append({"money": money, "tokens": tokens, "day": start + x})
     return dailies
+
+
+def generate_pet():
+    pet = {}
+
+    with open("data/templates/petNames.json", "r") as f:
+        pet["name"] = random.choice(json.load(f))
+
+    with open("data/templates/petWeights.json", "r") as f:
+        pets = json.load(f)
+        types = list(pets.keys())
+        weights = [pets[key] for key in types]
+
+        pet["type"] = random.choices(types, weights=weights, k=1)[0]
+
+    with open("data/templates/petTemplates.json", "r") as f:
+        template = json.load(f)[pet["type"]]
+
+    pet["age"] = random.randint(4, int(template["maxAge"] * 0.75))
+    pet["price"] = int(floor(random.randint(template["minPrice"], template["maxPrice"]) * (1-pet["age"]/template["maxAge"]*0.5), -1)) # Price is randint(minPrice, maxPrice) * (1-percent_of_life_lived * 0.5) floored to the nearest 10
+    pet["image"] = random.choice(template["images"])
+    pet['xp'] = floor(2500 * (pet["age"]/template["maxAge"]) * (pet['price']/template['maxPrice']*2), 1) # Starting xp is 5000 * (percent_of_life_lived * 1) * (percent_of_max_price * 2) floored to 1 decimal point
+
+    return pet
+
+
+def convert_pet(pet):
+    return {"name": pet['name'],
+            "type": pet['type'],
+            "image": pet['image'],
+            "born": get_day()-pet['age'],
+            "lastFed": get_minute(),
+            "xp": pet['xp']}
+
+
+def calc_pet_level(xp: float):  # Level is calculated by round(log1.25((xp + 1000) / 1000)) + 1 meaning levels require 250 * 1.25^n-1 xp
+    return int(math.log((xp+1000)/1000, 1.25))+1
+
+
+def calc_next_pet_level_xp(level: int):
+    return ceil(sum(250 * 1.25 ** n for n in range(level)), 1)
 
 
 class Blackjack:
@@ -486,6 +559,11 @@ def floor(i, n):
     return round(int(i * 10 ** n) / 10 ** n, n)
 
 
+# Round to ceil with n amount of decimal places    0.02 * 10^2 = 2 / 10^2 = 0.02
+def ceil(i, n):
+    return round(math.ceil(i * 10 ** n) / 10 ** n, n)
+
+
 # Might delete later
 def get_env_var(key: str):
     return os.getenv(key)
@@ -520,6 +598,16 @@ def count_decimals(num: float):
 # Get current day
 def get_day():
     return math.floor((time.time() / 60 / 60 + 1) / 24)
+
+
+# Get current hour
+def get_hour():
+    return math.floor(time.time() / 60 / 60 + 1)
+
+
+# Get current hour
+def get_minute():
+    return math.floor(time.time() / 60)
 
 
 async def generate_discord_screenshot(message: discord.Message, width: int, max_height: int, reference: discord.Message = None):
@@ -559,7 +647,7 @@ async def generate_discord_screenshot(message: discord.Message, width: int, max_
     if reference:
         reference_img = Image.new(mode="RGB", size=(width, img.size[1]+50), color="#313338")
         reference_img.paste(img, (0, 50))
-        reply_symbol = Image.open("data/media/reply.png")
+        reply_symbol = Image.open("data/assets/reply.png")
         reference_img.paste(reply_symbol, (-5, 17))
 
         avatar = Image.open(io.BytesIO(await reference.author.display_avatar.read())).resize((30, 30))

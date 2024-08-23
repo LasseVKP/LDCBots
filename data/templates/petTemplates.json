@@ -1,0 +1,10 @@
+{
+  "Cat": {"images": ["cat01", "cat02"], "minPrice": 2000, "maxPrice": 5000, "maxAge": 126},
+  "Dog": {"images": ["dog01", "dog02", "dog03"], "minPrice": 2000, "maxPrice": 5000, "maxAge": 91},
+  "Fish": {"images": ["fish01", "fish02"], "minPrice": 500, "maxPrice": 1500, "maxAge": 35},
+  "Rabbit": {"images": ["rabbit01"], "minPrice": 1500, "maxPrice": 4000, "maxAge": 84},
+  "Parrot": {"images": ["parrot01"], "minPrice": 3000, "maxPrice": 7500, "maxAge": 105},
+  "Lizard": {"images": ["lizard01"], "minPrice": 1500, "maxPrice": 4000, "maxAge": 105},
+  "Turtle": {"images": ["turtle01"], "minPrice": 2000, "maxPrice": 5000, "maxAge": 140},
+  "Rat": {"images": ["rat01"], "minPrice": 200, "maxPrice": 1000, "maxAge": 21}
+}

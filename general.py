@@ -92,7 +92,7 @@ async def battle_of_wits(ctx: discord.ApplicationContext, counter_link: str):
 
     original = await channel.fetch_message(counter.reference.message_id)
 
-    clip = VideoFileClip("data/media/battleOfWits.mp4")
+    clip = VideoFileClip("data/assets/battleOfWits.mp4")
 
     if original.reference:
         original_reference = await channel.fetch_message(original.reference.message_id)
