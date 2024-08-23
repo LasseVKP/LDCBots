@@ -5,7 +5,7 @@ import random
 import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
-                 format_money, format_tokens, Default, DailyView, get_day, calc_pet_level, calc_next_pet_level_xp)
+                 format_money, format_tokens, Default, DailyView, get_day, calc_pet_level, calc_next_pet_level_xp, get_minute)
 
 # Create database handler
 EDB = EconomyDatabaseHandler()
@@ -353,7 +353,7 @@ async def show(ctx: discord.ApplicationContext, user: discord.Member = None):
                                                                                                                                                             pet['type'].lower(),
                                                                                                                                                             lifespan,
                                                                                                                                                             level,
-                                                                                                                                                            pet['xp'],
+                                                                                                                                                            round(pet['xp'],1),
                                                                                                                                                             next_level_xp,
                                                                                                                                                             xp_for_next_level)
     embed.set_thumbnail(url=pet_image)
@@ -408,7 +408,85 @@ async def adopt(ctx: discord.ApplicationContext, index: int):
     await ctx.respond(embed=embed)
 
 
-@pets.command()
+@pets.command(description="")
+async def feed(ctx: discord.ApplicationContext):
+    pet = EDB.get_pet(ctx.author)
+
+    if not pet:
+        await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    time_passed = get_minute()-pet['lastFed']
+
+    if time_passed < 120:
+        await ctx.respond(embed=error_embed(ctx.author, f"{pet['name']} isn't hungry yet. You can feed {pet['name']} again in {120-time_passed} minutes"), ephemeral=True)
+        return
+
+    with open("data/templates/petImages.json", "r") as f:
+        pet_image = json.load(f)[pet["image"]]
+
+    xp = round(random.random()*250+250, 1)
+
+    EDB.feed_pet(ctx.author)
+    EDB.add_pet_xp(ctx.author, xp)
+
+    embed = simple_message_embed(ctx.author, f"You fed {pet['name']}")
+    embed.description = f"{pet['name']} gained {xp} xp\n{pet['name']} now has {round(pet['xp']+xp,1)} xp"
+
+    level = calc_pet_level(pet['xp'])
+    new_level = calc_pet_level(round(pet['xp']+xp,1))
+
+    if new_level > level:
+        embed.description += f"\n🎉 {pet['name']} has reached level {new_level} 🎉"
+
+
+    embed.set_thumbnail(url=pet_image)
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command(description="Send your pet on a small adventure")
+async def explore(ctx: discord.ApplicationContext):
+    pet = EDB.get_pet(ctx.author)
+
+    if not pet:
+        await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    time_passed = get_minute()-pet['lastBigAction']
+
+    if time_passed < 60:
+        await ctx.respond(embed=error_embed(ctx.author, f"{pet['name']} is too tired right now. You can send {pet['name']} on another adventure in {60-time_passed} minutes"), ephemeral=True)
+        return
+
+    with open("data/templates/petImages.json", "r") as f:
+        pet_image = json.load(f)[pet["image"]]
+
+    with open("data/templates/petAdventures.json", "r") as f:
+        adventure = random.choice(json.load(f)[pet['type']])
+
+    xp = round(random.random() * adventure['xpRange'] + adventure['minXp'], 1)
+
+    EDB.use_pet_big_action(ctx.author)
+    EDB.add_pet_xp(ctx.author, xp)
+
+    embed = simple_message_embed(ctx.author, f"You sent {pet['name']} on a small adventure")
+    embed.description = f"{pet['name']} {adventure['message']}"
+    embed.description += f"\n{pet['name']} gained {xp} xp\n{pet['name']} now has {round(pet['xp']+xp,1)} xp"
+
+    level = calc_pet_level(pet['xp'])
+    new_level = calc_pet_level(round(pet['xp']+xp,1))
+
+    if new_level > level:
+        embed.description += f"\n🎉 {pet['name']} has reached level {new_level} 🎉"
+
+
+    embed.set_thumbnail(url=pet_image)
+
+    await ctx.respond(embed=embed)
+
+
+@pets.command(description="Abandon your pet. Warning, there is no confirmation box")
 async def abandon(ctx: discord.ApplicationContext):
     pet = EDB.get_pet(ctx.author)
 

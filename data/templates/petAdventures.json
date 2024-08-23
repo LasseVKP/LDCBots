@@ -1,0 +1,10 @@
+{
+  "Cat": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "caught a bird!", "minXp": 125, "xpRange": 100}],
+  "Dog": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "found a cool stick!", "minXp": 125, "xpRange": 100}],
+  "Fish": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "found a shiny seashell!", "minXp": 125, "xpRange": 100}],
+  "Rabbit": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "found some tasty leaves!", "minXp": 125, "xpRange": 100}],
+  "Parrot": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "did a loop-de-loop!", "minXp": 125, "xpRange": 100}],
+  "Lizard": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "found a sunny rock to chill on!", "minXp": 125, "xpRange": 100}],
+  "Turtle": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "moved a bit faster than normal!", "minXp": 125, "xpRange": 100}],
+  "Rat": [{"message": "found a cool rock!", "minXp": 100, "xpRange": 50}, {"message": "found a tiny shiny mineral!", "minXp": 125, "xpRange": 100}]
+}

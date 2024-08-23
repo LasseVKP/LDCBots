@@ -48,6 +48,15 @@ class EconomyDatabaseHandler(BaseDatabaseHandler):
     def get_pet(self, user: discord.Member):
         return self.get_one_value(collection="pets", query={"_id": user.id}, field="pet", fallback=None)
 
+    def add_pet_xp(self, user: discord.Member, amount: float):
+        self.pets_col.update_one({"_id": user.id}, {"$inc": {"pet.xp": round(amount, 1)}})
+
+    def feed_pet(self, user: discord.Member):
+        self.pets_col.update_one({"_id": user.id}, {"$set": {"pet.lastFed": get_minute()}})
+
+    def use_pet_big_action(self, user: discord.Member):
+        self.pets_col.update_one({"_id": user.id}, {"$set": {"pet.lastBigAction": get_minute()}})
+
     def replace_pet(self, index):
         self.pets_col.update_one({"_id": -1}, {"$set": {f"pets.{index}": generate_pet()}})
 
@@ -263,8 +272,9 @@ def convert_pet(pet):
             "type": pet['type'],
             "image": pet['image'],
             "born": get_day()-pet['age'],
-            "lastFed": get_minute(),
-            "xp": pet['xp']}
+            "lastFed": get_minute()-120,
+            "xp": pet['xp'],
+            "lastBigAction": get_minute()-60}
 
 
 def calc_pet_level(xp: float):  # Level is calculated by round(log1.25((xp + 1000) / 1000)) + 1 meaning levels require 250 * 1.25^n-1 xp
