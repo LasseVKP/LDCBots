@@ -500,8 +500,10 @@ async def explore(ctx: discord.ApplicationContext):
 
     xp = round(random.random() * adventure['xpRange'] + adventure['minXp'], 1)
 
+
     EDB.use_pet_big_action(ctx.author)
     EDB.add_pet_xp(ctx.author, xp)
+
 
     embed = simple_message_embed(ctx.author, f"You sent {pet['name']} on a small adventure")
     embed.description = f"{pet['name']} {adventure['message']}"
@@ -512,6 +514,11 @@ async def explore(ctx: discord.ApplicationContext):
 
     if new_level > level:
         embed.description += f"\n🎉 {pet['name']} has reached level {new_level} 🎉"
+
+    reward = round(random.random() * adventure['rewardRange'] + adventure['minReward'], 1)
+    EDB.add_balance(ctx.author, reward)
+
+    embed.description += f"\n\nYou got {reward}{Default.CURRENCY}"
 
 
     embed.set_thumbnail(url=pet_image)
