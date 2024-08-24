@@ -5,7 +5,7 @@ import random
 import discord, datetime
 from discord.ext import tasks
 from vkp import (BasicBot, EconomyDatabaseHandler, get_env_var, floor, Blackjack, error_embed, simple_message_embed,
-                 format_money, format_tokens, Default, DailyView, get_day, calc_pet_level, calc_next_pet_level_xp, get_minute)
+                 format_money, format_tokens, Default, DailyView, get_day, calc_pet_level, calc_next_pet_level_xp, get_minute, is_pet_alive)
 
 # Create database handler
 EDB = EconomyDatabaseHandler()
@@ -284,7 +284,7 @@ async def diceroll(ctx: discord.ApplicationContext, amount: int):
 
 
 @pets.command(description="Show pets that are available for adoption")
-async def center(ctx: discord.ApplicationContext):
+async def shelter(ctx: discord.ApplicationContext):
     available_pets = EDB.get_pets()
 
     embed = simple_message_embed(ctx.author, "Pets currently available to be adopted")
@@ -336,6 +336,11 @@ async def show(ctx: discord.ApplicationContext, user: discord.Member = None):
             f"{user.display_name} doesn't" if user.id != ctx.author.id else "You don't")), ephemeral=True)
         return
 
+    alive = await is_pet_alive(ctx, pet, EDB)
+
+    if not alive:
+        return
+
     with open("data/templates/petImages.json", "r") as f:
         pet_image = json.load(f)[pet["image"]]
 
@@ -348,14 +353,20 @@ async def show(ctx: discord.ApplicationContext, user: discord.Member = None):
     next_level_xp = calc_next_pet_level_xp(level)
     xp_for_next_level = round(next_level_xp - pet['xp'], 1)
 
+    last_fed_time = get_minute() - pet['lastFed']
+    hunger_state = "Not hungry" if last_fed_time < 120 else "Slightly hungry" if last_fed_time < 240 else "Hungry" if last_fed_time < 1080 else "Very hungry" if last_fed_time < 2160 else "Starving"
+
+
     embed = simple_message_embed(ctx.author,f"{pet['name']} the {pet['type']}")
-    embed.description = "\\💠 {0} years old. A {1}s lifespan is {2} years\n\n\\💠 Pet level: {3}\n\\💠Pet xp: {4}/{5}, needs {6} xp to level up".format(age,
+    embed.description = "\\🎂 {8} is {0} years old. A {1}s lifespan is {2} years\n\n\\🍖 **Hunger:** {7}\n\n\\💠 **Pet level:** {3}\n\\💠 **Pet xp:** {4}/{5}, needs {6} xp to level up".format(age,
                                                                                                                                                             pet['type'].lower(),
                                                                                                                                                             lifespan,
                                                                                                                                                             level,
                                                                                                                                                             round(pet['xp'],1),
                                                                                                                                                             next_level_xp,
-                                                                                                                                                            xp_for_next_level)
+                                                                                                                                                            xp_for_next_level,
+                                                                                                                                                            hunger_state,
+                                                                                                                                                            pet['name'])
     embed.set_thumbnail(url=pet_image)
 
     await ctx.respond(embed=embed)
@@ -367,6 +378,11 @@ async def rename(ctx: discord.ApplicationContext, new_name: str):
 
     if not pet:
         await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    alive = await is_pet_alive(ctx, pet, EDB)
+
+    if not alive:
         return
 
     if len(new_name) > 28:
@@ -403,6 +419,7 @@ async def adopt(ctx: discord.ApplicationContext, index: int):
     EDB.add_balance(ctx.author, -pet['price'])
 
     embed = simple_message_embed(ctx.author, f"You adopted {pet['name']} the {pet['type']} for {format_money(pet['price'])}")
+    embed.description = f"{pet['name']} is probably a bit hungry, so you can start off by using `/pet feed` to feed {pet['name']}"
     embed.set_thumbnail(url=pet_image)
 
     await ctx.respond(embed=embed)
@@ -414,6 +431,11 @@ async def feed(ctx: discord.ApplicationContext):
 
     if not pet:
         await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    alive = await is_pet_alive(ctx, pet, EDB)
+
+    if not alive:
         return
 
     time_passed = get_minute()-pet['lastFed']
@@ -451,6 +473,17 @@ async def explore(ctx: discord.ApplicationContext):
 
     if not pet:
         await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    alive = await is_pet_alive(ctx, pet, EDB)
+
+    if not alive:
+        return
+
+    time_passed = get_minute() - pet['lastFed']
+
+    if time_passed >= 120:
+        await ctx.respond(embed=error_embed(ctx.author, f"{pet['name']} is too hungry to explore right now. You can use `/pet feed` to feed {pet['name']}"), ephemeral=True)
         return
 
     time_passed = get_minute()-pet['lastBigAction']
@@ -492,6 +525,11 @@ async def abandon(ctx: discord.ApplicationContext):
 
     if not pet:
         await ctx.respond(embed=error_embed(ctx.author, "You don't own a pet"), ephemeral=True)
+        return
+
+    alive = await is_pet_alive(ctx, pet, EDB)
+
+    if not alive:
         return
 
     EDB.remove_pet(ctx.author)

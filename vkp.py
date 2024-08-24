@@ -725,3 +725,30 @@ def text_wrap(text: str, max_width: int, font: ImageFont.ImageFont):
 
     return lines
 
+
+async def is_pet_alive(ctx: discord.ApplicationContext, pet, db: EconomyDatabaseHandler):
+    # Check if pet has died of starvation, it dies of starvation after 48 hours
+
+    with open("data/templates/petTemplates.json", "r") as f:
+        lifespan = json.load(f)[pet['type']]['maxAge']
+
+    starved = get_minute()-pet['lastFed'] >= 2880
+    old_age = pet['born']+lifespan < get_day()
+
+    # Check if pet has died of old age or starvation
+    if starved or old_age:
+        db.remove_pet(ctx.author)
+        embed = simple_message_embed(ctx.author, f"\\🪦 Your pet, {pet['name']} the {pet['type']}, has passed away")
+
+        if starved:
+            embed.description = f"Your pet, {pet['name']} the {pet['type']}, has unfortunately passed away <t:{int((pet['lastFed']+2880)*60)}:R> from starvation."
+        elif old_age:
+            embed.description = f"Your pet, {pet['name']} the {pet['type']}, has unfortunately passed away <t:{int(((pet['born'] + lifespan + 1) * 24 - 1) * 60 * 60)}:R> from old age."
+
+        embed.colour = Default.BLACK
+
+        await ctx.respond(embed=embed)
+        return False
+
+    return True
+
